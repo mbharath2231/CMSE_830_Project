@@ -1,39 +1,45 @@
 import streamlit as st
 import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
+import plotly.express as px
 
-st.set_page_config(page_title="ICC T20 World Cup 2024 - Data Analysis", layout="wide")
+st.set_page_config(page_title = "T20 WorldCup Dashboard", layout = "wide")
 
-# Load data
-@st.cache_data
-def load_data():
-    matches = pd.read_csv("matches.csv")
-    deliveries = pd.read_csv("deliveries.csv")
-    return matches, deliveries
+st.title("ICC T20 WorldCup Analysis - Team Insights")
+st.write("Explore the Match Results, Team Performance and Match Venues")
 
-matches, deliveries = load_data()
+matches = pd.read_csv("matches.csv")
 
-st.title("🏏 ICC T20 World Cup 2024 Data Analysis Dashboard")
+teams = matches['winner'].dropna().unique()
+selected_team = st.sidebar.selectbox("Select a team", options = ["All"] + list(teams))
 
-st.sidebar.header("🔍 Filter Options")
-selected_season = st.sidebar.selectbox("Select Season", sorted(matches['season'].unique()))
+if selected_team != "All" : 
+    df = matches[matches["winner"] == selected_team]
+else : 
+    df = matches
 
-# --- Section 3: Top Winning Teams ---
-st.subheader("🥇 Top Winning Teams")
+# -----------------------------
+# Visualization 1 - Team Wins
+# -----------------------------
 
-top_teams = matches['winner'].value_counts().head(10)
-fig, ax = plt.subplots(figsize=(8,5))
-sns.barplot(y=top_teams.index, x=top_teams.values, palette="crest", ax=ax)
-ax.set_xlabel("Wins")
-ax.set_ylabel("Team")
-st.pyplot(fig)
+wins = df['winner'].value_counts().reset_index()
+wins.columns = ['Team', 'Wins']
 
-st.subheader("🏏 Top 10 Batsmen (All Seasons)")
+fig1 = px.bar(
+    wins,
+    x = 'Team',
+    y = 'Wins',
+    color = 'Wins',
+    title = 'Number of Wins by Each Team',
+    hover_name = 'Team'
+)
 
-batsman_runs = deliveries.groupby('batsman')['batsman_runs'].sum().sort_values(ascending=False).head(10)
-fig, ax = plt.subplots(figsize=(8,5))
-sns.barplot(y=batsman_runs.index, x=batsman_runs.values, palette="viridis", ax=ax)
-ax.set_xlabel("Total Runs")
-ax.set_ylabel("Batsman")
-st.pyplot(fig)
+st.plotly_chart(fig1, use_container_width = True)
+
+fig2 = px.pie(
+    df,
+    names = 'toss_decision',
+    title = 'Toss Decision Distribution (Bat/Field)',
+    color_discrete_sequence = px.colors.sequential.RdBu
+)
+
+st.plotly_chart(fig2, use_container_width=True)
