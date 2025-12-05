@@ -1,109 +1,166 @@
 import streamlit as st
 import pandas as pd
+import io
 
-st.title("📊 Datasets Overview & Summary")
+# 1. PAGE CONFIG
+st.set_page_config(page_title="Dataset Overview", layout="wide")
 
-# Load datasets
-matches = pd.read_csv("data/matches.csv")
-deliveries = pd.read_csv("data/deliveries.csv")
+st.title("🗂️ Data Inventory")
+st.markdown("""
+**Overview of the raw data sources used in this project.** Use this page to audit the data quality, check dimensions, and download samples.
+""")
 
-tab1, tab2 = st.tabs(["📘 Matches Dataset", "📗 Deliveries Dataset"])
+# 2. LOAD DATA
+@st.cache_data
+def load_data():
+    try:
+        matches = pd.read_csv("data/matches.csv")
+        deliveries = pd.read_csv("data/deliveries.csv")
+        return matches, deliveries
+    except FileNotFoundError:
+        st.error("❌ Data files not found. Please ensure they are in the 'data/' folder.")
+        return None, None
 
-# -----------------------------
-# TAB 1 — MATCHES
-# -----------------------------
-with tab1:
-    st.subheader("🔍 Raw Data Preview")
-    st.markdown("""
-    This table shows the raw match-level dataset exactly as collected.
-    It includes information such as match ID, teams, venue, toss decision,
-    and winner. Viewing the unprocessed data helps verify data integrity
-    and understand the structure before performing analysis.
-    """)
-    with st.expander("Show Matches Dataframe"):
-        st.dataframe(matches)
+matches, deliveries = load_data()
 
-    st.subheader("📐 Shape")
-    st.markdown("""
-    The shape tells how many rows (matches) and columns (attributes)
-    the dataset contains. This helps estimate dataset size and complexity,
-    and confirms whether all records were loaded successfully.
-    """)
-    st.write(f"Rows: **{matches.shape[0]}**, Columns: **{matches.shape[1]}**")
+if matches is not None:
+    
+    # 3. HELPER FUNCTION FOR RICH INFO
+    def dataset_snapshot(df, name):
+        """Displays high-level stats for a dataframe"""
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Rows", f"{df.shape[0]:,}")
+        with col2:
+            st.metric("Total Columns", df.shape[1])
+        with col3:
+            # Memory usage in MB
+            mem = df.memory_usage(deep=True).sum() / (1024 * 1024)
+            st.metric("Memory Usage", f"{mem:.2f} MB")
+        with col4:
+            duplicates = df.duplicated().sum()
+            st.metric("Duplicates", duplicates, delta_color="inverse" if duplicates > 0 else "off")
 
-    st.subheader("🔤 Column Data Types")
-    st.markdown("""
-    Each column has a specific data type (numeric, categorical, object).
-    Understanding data types is important for EDA and modeling because
-    certain analyses (like correlation) only work on numeric features,
-    while others require categorical encoding.
-    """)
-    st.dataframe(matches.dtypes.rename("dtype"))
+    # 4. TABS
+    tab1, tab2 = st.tabs(["📘 Matches Data", "📗 Deliveries Data"])
 
-    st.subheader("📊 Missing Value Summary")
-    st.markdown("""
-    This section displays how many values are missing in each column.
-    Missing data may arise from incomplete scorecards or unavailable
-    information. Identifying missing values early helps determine whether
-    imputation or removal is required before analysis or modeling.
-    """)
-    st.dataframe(matches.isnull().sum().rename("missing_values"))
+    # ==========================
+    # TAB 1: MATCHES
+    # ==========================
+    with tab1:
+        st.subheader("Matches Overview")
+        dataset_snapshot(matches, "Matches")
+        
+        st.divider()
+        
+        # A. INTERACTIVE PREVIEW
+        col_opt, col_view = st.columns([1, 4])
+        with col_opt:
+            view_mode = st.radio("View Mode", ["Head (5)", "Tail (5)", "Random Sample (10)"], key="m_view")
+            
+        with col_view:
+            if "Head" in view_mode:
+                display_df = matches.head(5)
+            elif "Tail" in view_mode:
+                display_df = matches.tail(5)
+            else:
+                display_df = matches.sample(10)
+            
+            st.dataframe(display_df, use_container_width=True)
 
-    st.subheader("📈 Descriptive Statistics")
-    st.markdown("""
-    This provides summary statistics such as count, mean, standard
-    deviation, minimum, maximum, and unique values. It helps identify
-    variable ranges, detect anomalies, and understand distributions.
-    Descriptive stats act as the foundation for deeper exploratory analysis.
-    """)
-    st.dataframe(matches.describe(include="all"))
+        # B. DATA QUALITY AUDIT (The "Cool" Part)
+        st.subheader("🛡️ Data Quality Audit")
+        
+        # Calculate missing values
+        missing = matches.isnull().sum()
+        missing = missing[missing > 0]
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            if not missing.empty:
+                st.write("**Missing Values Heatmap**")
+                # Create a simple dataframe for the bar chart
+                miss_df = pd.DataFrame({'Column': missing.index, 'Count': missing.values})
+                st.dataframe(
+                    miss_df,
+                    column_config={
+                        "Count": st.column_config.ProgressColumn(
+                            "Missing Count",
+                            format="%d",
+                            min_value=0,
+                            max_value=matches.shape[0],
+                            help="Number of missing values",
+                        ),
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.success("✅ No missing values detected in this dataset!")
 
-# -----------------------------
-# TAB 2 — DELIVERIES
-# -----------------------------
-with tab2:
-    st.subheader("🔍 Raw Data Preview")
-    st.markdown("""
-    The deliveries dataset contains ball-by-ball information for every match.
-    It is the most detailed level of cricket data, capturing runs scored,
-    extras, wickets, bowler, striker, and over/ball numbers. Examining this
-    preview helps ensure that granular data required for advanced analytics
-    is available.
-    """)
-    with st.expander("Show Deliveries Dataframe"):
-        st.dataframe(deliveries)
+        with c2:
+            st.write("**Column Data Types**")
+            # Group columns by type
+            types = matches.dtypes.value_counts()
+            st.bar_chart(types)
 
-    st.subheader("📐 Shape")
-    st.markdown("""
-    This shows the number of ball entries and the number of recorded features
-    per delivery. Since T20 matches produce thousands of rows per tournament,
-    this dataset is naturally much larger than the match-level file.
-    """)
-    st.write(f"Rows: **{deliveries.shape[0]}**, Columns: **{deliveries.shape[1]}**")
+    # ==========================
+    # TAB 2: DELIVERIES
+    # ==========================
+    with tab2:
+        st.subheader("Deliveries Overview")
+        dataset_snapshot(deliveries, "Deliveries")
+        
+        st.divider()
+        
+        # A. INTERACTIVE PREVIEW
+        col_opt, col_view = st.columns([1, 4])
+        with col_opt:
+            view_mode_d = st.radio("View Mode", ["Head (5)", "Tail (5)", "Random Sample (10)"], key="d_view")
+            
+        with col_view:
+            if "Head" in view_mode_d:
+                disp_d = deliveries.head(5)
+            elif "Tail" in view_mode_d:
+                disp_d = deliveries.tail(5)
+            else:
+                disp_d = deliveries.sample(10)
+            
+            st.dataframe(disp_d, use_container_width=True)
 
-    st.subheader("🔤 Column Data Types")
-    st.markdown("""
-    Column data types help identify which fields can be used for numeric
-    aggregation (e.g., runs_off_bat), which are categorical (e.g., bowler,
-    striker), and which require preprocessing. This is important for feature
-    engineering in modeling tasks.
-    """)
-    st.dataframe(deliveries.dtypes.rename("dtype"))
+        # B. DATA QUALITY AUDIT
+        st.subheader("🛡️ Data Quality Audit")
+        
+        missing_d = deliveries.isnull().sum()
+        missing_d = missing_d[missing_d > 0]
+        
+        c3, c4 = st.columns(2)
+        with c3:
+            if not missing_d.empty:
+                st.write("**Missing Values Heatmap**")
+                miss_df_d = pd.DataFrame({'Column': missing_d.index, 'Count': missing_d.values})
+                st.dataframe(
+                    miss_df_d,
+                    column_config={
+                        "Count": st.column_config.ProgressColumn(
+                            "Missing Count",
+                            format="%d",
+                            min_value=0,
+                            max_value=deliveries.shape[0],
+                            help="Number of missing values",
+                        ),
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.success("✅ No missing values detected!")
 
-    st.subheader("📊 Missing Value Summary")
-    st.markdown("""
-    Any missing values in the deliveries dataset may correspond to missing
-    dismissal information or incomplete scorecard entries. Identifying and
-    addressing missingness ensures accurate computation of metrics such
-    as strike rate, economy, and powerplay statistics.
-    """)
-    st.dataframe(deliveries.isnull().sum().rename("missing_values"))
-
-    st.subheader("📈 Descriptive Statistics")
-    st.markdown("""
-    Basic statistical summaries help understand the range and distribution
-    of ball-by-ball variables such as runs, extras, and wickets. These stats
-    also serve as sanity checks to ensure the scoring data aligns with expected
-    T20 cricket patterns.
-    """)
-    st.dataframe(deliveries.describe(include="all"))
+        with c4:
+            st.write("**Key Statistics (Numeric)**")
+            # Show describe only for important numeric cols to avoid clutter
+            important_cols = ['runs_off_bat', 'extras', 'wide_runs', 'noball_runs']
+            # Filter cols that actually exist in the dataframe
+            existing_cols = [c for c in important_cols if c in deliveries.columns]
+            if existing_cols:
+                st.dataframe(deliveries[existing_cols].describe(), use_container_width=True)
