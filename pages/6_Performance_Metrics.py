@@ -22,7 +22,7 @@ This page summarizes **player** and **team** performance using cricket-specific 
 Tabs:
 - 👨‍🏏 Batsmen – strike rate, average, total runs  
 - 🏹 Bowlers – wickets, economy, strike rate  
-- 🏠 Teams – win %, toss performance  
+- 🏠 Teams – win %, toss performance, **opponent analysis**
 """
 )
 
@@ -55,8 +55,7 @@ with tab_bat:
     # ===================== Metrics Table =====================
     st.markdown("### 📋 Batsmen Metrics Table")
     st.markdown("""
-**Purpose:**  
-Show consolidated batting performance metrics (`total_runs`, `balls_faced`,
+**Purpose:** Show consolidated batting performance metrics (`total_runs`, `balls_faced`,
 `strike_rate`, `batting_average`) for all batsmen who meet a minimum-balls filter.
 """)
 
@@ -71,8 +70,7 @@ Show consolidated batting performance metrics (`total_runs`, `balls_faced`,
     )
 
     st.markdown("""
-**Data-driven conclusion:**  
-- `total_runs` increases strongly with `balls_faced`, showing that longer stays at the crease drive scoring volume.  
+**Data-driven conclusion:** - `total_runs` increases strongly with `balls_faced`, showing that longer stays at the crease drive scoring volume.  
 - Batsmen with high `strike_rate` and few `dismissals` provide the most T20 impact.  
 - `batting_average` is unstable for low-ball players, so filtering on `balls_faced` is necessary for reliable comparisons.  
 """)
@@ -93,8 +91,7 @@ Show consolidated batting performance metrics (`total_runs`, `balls_faced`,
 
     st.markdown(f"### 📊 Top {top_n} Batsmen by `{metric_choice}`")
     st.markdown("""
-**Purpose:**  
-Rank the best-performing batsmen using a key metric to highlight leading scorers,
+**Purpose:** Rank the best-performing batsmen using a key metric to highlight leading scorers,
 fastest hitters, or most consistent anchors.
 """)
 
@@ -109,8 +106,7 @@ fastest hitters, or most consistent anchors.
     st.plotly_chart(fig_bat, use_container_width=True)
 
     st.markdown(f"""
-**Data-driven conclusion:**  
-- Players at the top of `{metric_choice}` dominate that aspect of batting performance.  
+**Data-driven conclusion:** - Players at the top of `{metric_choice}` dominate that aspect of batting performance.  
 - High `strike_rate` at the top of the chart identifies explosive scorers ideal for powerplay and death overs.  
 - High `batting_average` combined with reasonable `strike_rate` points to stable anchors in the lineup.  
 """)
@@ -118,8 +114,7 @@ fastest hitters, or most consistent anchors.
     # ===================== 3D Performance Summary =====================
     st.markdown("### 🧭 3D Performance Summary – Top 10 Batsmen")
     st.markdown("""
-**Purpose:**  
-Compare top batsmen along three dimensions:
+**Purpose:** Compare top batsmen along three dimensions:
 `total_runs`, `balls_faced`, and `dismissals`, with bubble size representing `strike_rate`.
 """)
 
@@ -147,8 +142,7 @@ Compare top batsmen along three dimensions:
     st.plotly_chart(fig3d, use_container_width=True)
 
     st.markdown("""
-**Data-driven conclusion:**  
-- `total_runs` rises sharply with `balls_faced`, confirming that volume hitters occupy the crease longer.  
+**Data-driven conclusion:** - `total_runs` rises sharply with `balls_faced`, confirming that volume hitters occupy the crease longer.  
 - Batsmen with high `total_runs` and low `dismissals` are both productive and reliable.  
 - Larger bubbles (higher `strike_rate`) highlight the rare players who are fast scorers **and** high scorers.  
 """)
@@ -196,8 +190,7 @@ with tab_bowl:
     # ===================== Bowler Table =====================
     st.markdown("### 📋 Bowler Metrics Table")
     st.markdown("""
-**Purpose:**  
-Summarize bowling performance using `wickets`, `runs_conceded`, `overs_bowled`,
+**Purpose:** Summarize bowling performance using `wickets`, `runs_conceded`, `overs_bowled`,
 `economy_rate`, `bowling_average`, and `strike_rate`.
 """)
 
@@ -212,8 +205,7 @@ Summarize bowling performance using `wickets`, `runs_conceded`, `overs_bowled`,
     )
 
     st.markdown("""
-**Data-driven conclusion:**  
-- Bowlers with high `wickets` and low `economy_rate` are the most valuable in T20.  
+**Data-driven conclusion:** - Bowlers with high `wickets` and low `economy_rate` are the most valuable in T20.  
 - `strike_rate` highlights wicket-takers who strike frequently.  
 - Large `overs_bowled` combined with good metrics indicates trusted, frontline bowlers.  
 """)
@@ -221,8 +213,7 @@ Summarize bowling performance using `wickets`, `runs_conceded`, `overs_bowled`,
     # ===================== Bowler Scatter =====================
     st.markdown("### 📊 Wickets vs Economy Rate (Top Bowlers)")
     st.markdown("""
-**Purpose:**  
-Visualize the trade-off between wicket-taking (`wickets`) and run containment
+**Purpose:** Visualize the trade-off between wicket-taking (`wickets`) and run containment
 (`economy_rate`), with bubble size showing `overs_bowled`.
 """)
 
@@ -254,8 +245,7 @@ Visualize the trade-off between wicket-taking (`wickets`) and run containment
     st.plotly_chart(fig_bowl, use_container_width=True)
 
     st.markdown("""
-**Data-driven conclusion:**  
-- Elite bowlers appear in the region of **high `wickets` and low `economy_rate`**.  
+**Data-driven conclusion:** - Elite bowlers appear in the region of **high `wickets` and low `economy_rate`**.  
 - Large bubbles in that region show bowlers who handle both workload and impact.  
 - Bowlers with many `wickets` but high `economy_rate` reflect aggressive, risk-heavy styles.  
 """)
@@ -291,66 +281,101 @@ with tab_team:
     team_stats_df = pd.DataFrame(team_stats).round(2)
 
     # ===================== Team Table =====================
-    st.markdown("### 📋 Team Metrics Table")
-    st.markdown("""
-**Purpose:**  
-Summarize each team’s overall performance in terms of `matches_played`, `wins`,
-`win_pct`, `toss_wins`, and `toss_win_pct`.
-""")
+    st.markdown("### 📋 Global Team Metrics")
+    st.markdown("Overview of all teams' performance.")
 
     st.dataframe(
         team_stats_df.sort_values("win_pct", ascending=False).reset_index(drop=True)
     )
 
-    st.markdown("""
-**Data-driven conclusion:**  
-- Teams with high `win_pct` show consistent match performance across the tournament.  
-- `toss_win_pct` does **not** consistently align with `win_pct`, supporting the idea that toss alone does not decide matches.  
-""")
+    # ===================== Global Charts =====================
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("#### 🏆 Win % Leaderboard")
+        fig_team = px.bar(
+            team_stats_df.sort_values("win_pct", ascending=False),
+            x="team",
+            y="win_pct",
+            text="win_pct",
+            color="win_pct",
+            color_continuous_scale="Viridis",
+            labels={"team": "Team", "win_pct": "Win %"},
+        )
+        fig_team.update_layout(xaxis_tickangle=-45)
+        st.plotly_chart(fig_team, use_container_width=True)
 
-    # ===================== Win % Bar Chart =====================
-    st.markdown("### 📊 Team Win Percentage")
-    st.markdown("""
-**Purpose:**  
-Rank teams by `win_pct` to identify the most dominant sides in the tournament.
-""")
+    with col2:
+        st.markdown("#### 🎲 Toss Win %")
+        fig_toss = px.bar(
+            team_stats_df.sort_values("toss_win_pct", ascending=False),
+            x="team",
+            y="toss_win_pct",
+            text="toss_win_pct",
+            color="toss_win_pct",
+            color_continuous_scale="Blues",
+            labels={"team": "Team", "toss_win_pct": "Toss Win %"},
+        )
+        fig_toss.update_layout(xaxis_tickangle=-45)
+        st.plotly_chart(fig_toss, use_container_width=True)
 
-    fig_team = px.bar(
-        team_stats_df.sort_values("win_pct", ascending=False),
-        x="team",
-        y="win_pct",
-        text="win_pct",
-        labels={"team": "Team", "win_pct": "Win %"},
-    )
-    fig_team.update_layout(xaxis_tickangle=-45)
-    st.plotly_chart(fig_team, use_container_width=True)
+    # =========================================================
+    # NEW SECTION: Specific Team Drill-Down
+    # =========================================================
+    st.divider()
+    st.subheader("🕵️ Deep Dive: Specific Team Analysis")
+    st.markdown("Select a team to see **who** they beat and **where** they win.")
 
-    st.markdown("""
-**Data-driven conclusion:**  
-- High `win_pct` teams combine strong batting and bowling units and execute plans consistently.  
-- Lower-ranked teams show more volatile performance, often struggling to convert good starts into wins.  
-""")
+    selected_team = st.selectbox("Select a Team:", sorted(teams))
 
-    # ===================== Toss Win % Bar Chart =====================
-    st.markdown("### 🎲 Toss Win Percentage by Team")
-    st.markdown("""
-**Purpose:**  
-Compare how frequently teams win the toss, and examine whether toss dominance
-aligns with overall match success.
-""")
+    if selected_team:
+        # 1. Filter matches where selected_team WON
+        won_matches = matches[matches['winner'] == selected_team].copy()
 
-    fig_toss = px.bar(
-        team_stats_df.sort_values("toss_win_pct", ascending=False),
-        x="team",
-        y="toss_win_pct",
-        text="toss_win_pct",
-        labels={"team": "Team", "toss_win_pct": "Toss Win %"},
-    )
-    fig_toss.update_layout(xaxis_tickangle=-45)
-    st.plotly_chart(fig_toss, use_container_width=True)
+        if won_matches.empty:
+            st.warning(f"⚠️ {selected_team} has not won any matches in this dataset.")
+        else:
+            # 2. Identify Opponents in those wins
+            # If team1 is winner, opponent is team2. If team2 is winner, opponent is team1.
+            won_matches['opponent'] = won_matches.apply(
+                lambda x: x['team2'] if x['team1'] == selected_team else x['team1'], axis=1
+            )
 
-    st.markdown("""
-**Data-driven conclusion:**  
-- `toss_win_pct` varies widely between teams, but does **not** reliably predict `win_pct`.  
-- This supports the hypothesis testing results: toss outcome has limited long-term impact compared to team quality and execution.  
-""")
+            # 3. Aggregation
+            wins_vs_opp = won_matches['opponent'].value_counts().reset_index()
+            wins_vs_opp.columns = ['Opponent', 'Wins']
+
+            wins_by_venue = won_matches['venue'].value_counts().reset_index()
+            wins_by_venue.columns = ['Venue', 'Wins']
+
+            # 4. Visualizations
+            col_a, col_b = st.columns(2)
+
+            with col_a:
+                st.markdown(f"#### 🆚 Who did {selected_team} beat?")
+                fig_vs = px.bar(
+                    wins_vs_opp,
+                    x='Opponent',
+                    y='Wins',
+                    text='Wins',
+                    color='Wins',
+                    color_continuous_scale='Reds',
+                    title=f"{selected_team} Wins vs. Opponents"
+                )
+                st.plotly_chart(fig_vs, use_container_width=True)
+
+            with col_b:
+                st.markdown(f"#### 🏟️ Where did {selected_team} win?")
+                fig_venue = px.pie(
+                    wins_by_venue,
+                    names='Venue',
+                    values='Wins',
+                    title=f"{selected_team} Wins by Venue",
+                    hole=0.4
+                )
+                st.plotly_chart(fig_venue, use_container_width=True)
+
+            st.info(f"""
+            **Analysis:**
+            * **Dominance:** {selected_team} has the most wins against **{wins_vs_opp.iloc[0]['Opponent']}**.
+            * **Fortress:** Their most successful venue is **{wins_by_venue.iloc[0]['Venue']}**.
+            """)
