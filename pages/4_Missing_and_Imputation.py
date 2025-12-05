@@ -1,14 +1,35 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go 
+import seaborn as sns
+import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
-# ---------------------------------
-# 4. MISSING VALUE IMPUTATION
-# ---------------------------------
-st.subheader("🛠 Missing Value Imputation")
+st.title("🧩 Missing Data & Imputation")
 
-st.write("Apply imputation methods to handle missing values:")
+@st.cache_data
+def load_data():
+    matches = pd.read_csv("data/matches.csv")
+    deliveries = pd.read_csv("data/deliveries.csv")
+    return matches, deliveries
+
+matches, deliveries = load_data()
+
+dataset_name = st.selectbox(
+    "Choose a Dataset",
+    ("Matches", "Deliveries")
+)
+
+df = matches if dataset_name == "Matches" else deliveries
+
+st.markdown(f"### 🔍 Missing Values Heatmap — {dataset_name} Dataset")
+
+fig, ax = plt.subplots(figsize=(12, 6))
+sns.heatmap(df.isnull(), cbar=False, cmap="viridis", ax=ax)
+ax.set_title(f"Missing Values Heatmap - {dataset_name}", fontsize=15)
+st.pyplot(fig)
+
+st.markdown("---")
+st.subheader("🛠 Imputation Techniques")
 
 method = st.selectbox(
     "Choose Imputation Technique:",
@@ -22,21 +43,8 @@ method = st.selectbox(
     ]
 )
 
-# Load datasets
-matches = pd.read_csv("data/matches.csv")
-deliveries = pd.read_csv("data/deliveries.csv")
-
-dataset_name = st.sidebar.selectbox(
-    "Choose a Dataset",
-    ("Matches", "Deliveries")
-)
-
-# Select the dataset
-df = matches if dataset_name == "Matches" else deliveries
-
-df_imputed = df.copy()
-
 if st.button("Apply Imputation"):
+    df_imputed = df.copy()
 
     if method == "Mean Imputation":
         numeric_cols = df_imputed.select_dtypes(include=['float64', 'int64']).columns
@@ -59,9 +67,7 @@ if st.button("Apply Imputation"):
     elif method == "Drop Rows with Missing Values":
         df_imputed = df_imputed.dropna()
 
-    # --------------------------------------------------
-    #  MISSING VALUE COMPARISON PLOT (BEFORE VS AFTER)
-    # --------------------------------------------------
+    # ---- Before vs After comparison ----
     st.subheader("📊 Missing Values Before vs After Imputation")
 
     before_missing = df.isna().sum()
@@ -73,13 +79,12 @@ if st.button("Apply Imputation"):
         "After Imputation": after_missing.values
     })
 
-    # Interactive bar chart
-    fig = go.Figure(data=[
+    fig2 = go.Figure(data=[
         go.Bar(name='Before', x=comparison_df["Column"], y=comparison_df["Before Imputation"]),
         go.Bar(name='After', x=comparison_df["Column"], y=comparison_df["After Imputation"])
     ])
 
-    fig.update_layout(
+    fig2.update_layout(
         barmode='group',
         title="Missing Values Comparison",
         xaxis_title="Columns",
@@ -87,6 +92,7 @@ if st.button("Apply Imputation"):
         height=500
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig2, use_container_width=True)
 
+    st.markdown("#### 🔎 Preview of Imputed Data")
     st.dataframe(df_imputed.head())
