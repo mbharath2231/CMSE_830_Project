@@ -107,15 +107,6 @@ if df is not None:
     lin_acc = accuracy_score(y_test, lin_pred)
     # Lin reg CV isn't standard for classification accuracy comparison here, skipping to focus on classifiers.
 
-    # 6. METRICS DASHBOARD
-    st.divider()
-    st.subheader("📊 Model Performance (Test Set vs Cross-Validation)")
-    
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Random Forest (Test)", f"{rf_acc:.1%}", f"CV Mean: {rf_cv:.1%}", delta_color="normal")
-    col2.metric("Logistic Regression", f"{log_acc:.1%}", f"CV Mean: {log_cv:.1%}", delta_color="normal")
-    col3.metric("Linear Regression", f"{lin_acc:.1%}", "Baseline (No CV)", delta_color="off")
-
     # 7. DETAILED ANALYSIS TABS
     st.divider()
     st.subheader("🔍 Deep Dive: Inside the Black Box")
