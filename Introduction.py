@@ -8,7 +8,7 @@ st.set_page_config(
 
 # 1. HEADER SECTION
 st.title("🏏 T20 World Cup 2024: Data Science Portfolio")
-st.markdown("### CSE 482: Big Data Analysis | Class Project")
+st.markdown("### Fall 2025 Project")
 st.divider()
 
 # 2. PROJECT ABSTRACT (The "Why")
@@ -70,4 +70,4 @@ st.markdown("""
 
 # 5. FOOTER
 st.divider()
-st.caption("Developed by **Bharath Mikkilineni, Caroline Newton, Hemprasanna Anbarasan** for CSE 482 (Fall 2025). Michigan State University.")
+st.caption("Developed by **Bharath Mikkilineni, Caroline Newton, Hemprasanna Anbarasan** for Fall 2025. Michigan State University.")

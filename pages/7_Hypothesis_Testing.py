@@ -1,174 +1,222 @@
 import streamlit as st
 import pandas as pd
-from scipy.stats import chi2_contingency
-from statsmodels.stats.proportion import proportions_ztest
 import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+from scipy.stats import chi2_contingency
+from statsmodels.stats.proportion import proportions_ztest, proportion_confint
 
-st.title("📊 Statistical Analysis & Hypothesis Testing")
+# 1. PAGE CONFIG & CUSTOM CSS
+st.set_page_config(page_title="Hypothesis Testing", layout="wide")
 
-# -----------------------------
-# Load Data
-# -----------------------------
+st.markdown("""
+<style>
+    /* Card Styling */
+    .stat-card {
+        background-color: #f8f9fa;
+        border-left: 5px solid #636EFA;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+        text-align: center;
+        margin-bottom: 10px;
+    }
+    .stat-title { font-size: 1.1rem; color: #555; text-transform: uppercase; letter-spacing: 1px; }
+    .stat-value { font-size: 2.5rem; font-weight: bold; color: #333; }
+    .stat-note { font-size: 0.9rem; color: #777; }
+    
+    /* Result Box Styling */
+    .result-box-pass { background-color: #d4edda; border: 2px solid #c3e6cb; color: #155724; padding: 15px; border-radius: 10px; text-align: center; }
+    .result-box-fail { background-color: #f8d7da; border: 2px solid #f5c6cb; color: #721c24; padding: 15px; border-radius: 10px; text-align: center; }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🧪 Statistical Inference & Theory")
+st.markdown("""
+**Goal:** Apply core statistical theorems to real-world sports data.
+We validate patterns using **Hypothesis Testing** and demonstrate the **Central Limit Theorem**.
+""")
+
+# 2. LOAD DATA
 @st.cache_data
 def load_data():
-    matches = pd.read_csv("data/matches.csv")
-    return matches
+    try:
+        matches = pd.read_csv("data/matches.csv")
+        deliveries = pd.read_csv("data/deliveries.csv")
+        return matches, deliveries
+    except FileNotFoundError:
+        st.error("❌ Data files not found.")
+        return None, None
 
-matches = load_data()
+matches, deliveries = load_data()
 
-st.markdown("""
-This page runs **formal hypothesis tests** to check whether key cricket factors  
-like `toss_winner` and `bat_first_team` have a statistically significant impact  
-on the final `winner` of the match.
-""")
+if matches is not None and deliveries is not None:
+    # PRE-PROCESSING
+    matches = matches.dropna(subset=['toss_winner', 'winner', 'toss_decision'])
+    matches = matches[matches['winner'] != 'No Result']
 
+    # TABS
+    tab1, tab2, tab3 = st.tabs(["🎲 Test 1: The Toss", "🏏 Test 2: Bat vs Chase", "📉 Theory: Central Limit Theorem"])
 
-# ============================================================
-# TEST 1 — Toss Winner vs Match Winner
-# ============================================================
-st.header("🎲 Test 1: Does Winning the Toss Increase the Probability of Winning the Match?")
-st.markdown("""
-**Purpose:**  
-Test whether teams that win the `toss_winner` are more likely to become the match `winner`.
-""")
+    # ==============================================================================
+    # TEST 1: TOSS EFFECT (CHI-SQUARE)
+    # ==============================================================================
+    with tab1:
+        st.subheader("1. Does Winning the Toss help you Win the Match?")
+        
+        matches['toss_outcome'] = matches.apply(
+            lambda x: "Won Match" if x['toss_winner'] == x['winner'] else "Lost Match", axis=1
+        )
+        
+        toss_wins = matches[matches['toss_outcome'] == "Won Match"].shape[0]
+        total_matches = matches.shape[0]
+        toss_win_rate = toss_wins / total_matches
+        
+        observed = [toss_wins, total_matches - toss_wins]
+        expected = [total_matches/2, total_matches/2] 
+        chi2, p = chi2_contingency([observed, expected])[0:2]
+        
+        col_viz, col_stat = st.columns([1.5, 1])
+        
+        with col_viz:
+            fig_toss = px.pie(
+                matches, names='toss_outcome', 
+                title="Outcome for Teams that Won the Toss",
+                color='toss_outcome',
+                color_discrete_map={'Won Match': '#00CC96', 'Lost Match': '#EF553B'},
+                hole=0.6
+            )
+            fig_toss.update_traces(textinfo='percent+label', textfont_size=16)
+            st.plotly_chart(fig_toss, use_container_width=True)
+            
+        with col_stat:
+            st.markdown("### 📊 Test Statistics")
+            st.markdown(f"""
+            <div class="stat-card">
+                <div class="stat-title">P-Value</div>
+                <div class="stat-value">{p:.4f}</div>
+                <div class="stat-note">Threshold: 0.05</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if p < 0.05:
+                st.markdown('<div class="result-box-pass">✅ RESULT: SIGNIFICANT</div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="result-box-fail">⚖️ RESULT: NOT SIGNIFICANT</div>', unsafe_allow_html=True)
 
-# Flags for toss winner == match winner / loser
-matches["toss_win_and_match_win"] = matches.apply(
-    lambda x: 1 if x["toss_winner"] == x["winner"] else 0, axis=1
-)
+    # ==============================================================================
+    # TEST 2: BAT FIRST vs CHASE (Z-TEST)
+    # ==============================================================================
+    with tab2:
+        st.subheader("2. Is there an advantage to Batting First?")
+        
+        def get_strategy_winner(row):
+            toss_win_team = row['toss_winner']
+            decision = row['toss_decision']
+            winner = row['winner']
+            if decision == 'bat':
+                bat_first_team = toss_win_team
+            else:
+                bat_first_team = row['team2'] if toss_win_team == row['team1'] else row['team1']
+            return "Bat First" if bat_first_team == winner else "Chase"
 
-matches["toss_win_and_match_loss"] = matches.apply(
-    lambda x: 1 if x["toss_winner"] != x["winner"] else 0, axis=1
-)
+        matches['strategy_outcome'] = matches.apply(get_strategy_winner, axis=1)
+        counts = matches['strategy_outcome'].value_counts()
+        n_bat_first = counts.get("Bat First", 0)
+        n_chase = counts.get("Chase", 0)
+        total = n_bat_first + n_chase
+        
+        stat, pval = proportions_ztest(n_bat_first, total, value=0.5)
+        ci_low, ci_high = proportion_confint(n_bat_first, total, alpha=0.05, method='wilson')
+        
+        col_viz2, col_stat2 = st.columns([1.5, 1])
+        
+        with col_viz2:
+            plot_df = pd.DataFrame({
+                'Strategy': ['Bat First', 'Chase'],
+                'Win Rate': [n_bat_first/total, n_chase/total]
+            })
+            fig_bar = px.bar(
+                plot_df, x='Strategy', y='Win Rate', color='Strategy',
+                text_auto='.1%', title="Win Rates by Strategy",
+                color_discrete_map={'Bat First': '#636EFA', 'Chase': '#AB63FA'},
+                range_y=[0, 1]
+            )
+            fig_bar.add_hline(y=0.5, line_dash="dash", line_color="black", annotation_text="50% (Neutral)")
+            st.plotly_chart(fig_bar, use_container_width=True)
 
-# Contingency table (1D: counts of win vs loss given toss_winner)
-contingency_table = pd.DataFrame({
-    "Match Won": [(matches["toss_winner"] == matches["winner"]).sum()],
-    "Match Lost": [(matches["toss_winner"] != matches["winner"]).sum()],
-})
+        with col_stat2:
+            st.markdown("### 📊 Test Statistics")
+            st.markdown(f"""
+            <div class="stat-card" style="border-left-color: #AB63FA;">
+                <div class="stat-title">P-Value</div>
+                <div class="stat-value">{pval:.4f}</div>
+            </div>
+            <div class="stat-card" style="border-left-color: #AB63FA;">
+                <div class="stat-title">95% Confidence Interval</div>
+                <div class="stat-value" style="font-size: 1.8rem;">{ci_low:.1%} — {ci_high:.1%}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-st.markdown("### 📋 Contingency Table – `toss_winner` vs `winner`")
-st.markdown("""
-Shows how many times the team that won the toss also won or lost the match.
-""")
-st.dataframe(contingency_table)
+    # ==============================================================================
+    # TAB 3: CENTRAL LIMIT THEOREM (NEW FEATURE)
+    # ==============================================================================
+    with tab3:
+        st.subheader("📉 The Central Limit Theorem (CLT) in Action")
+        st.markdown("""
+        **The Problem:** Individual batsman scores are NOT Normal (Bell Curve). They are skewed (lots of 0s and 10s).
+        **The Solution:** CLT states that the **Average** of many samples *will* form a Bell Curve. 
+        This is why we can use Z-Tests and T-Tests on sports data!
+        """)
 
-# Chi-square test of independence
-chi2, p, dof, expected = chi2_contingency(contingency_table)
+        # 1. Prepare Population Data (Individual Scores)
+        if 'runs_off_bat' in deliveries.columns:
+            # Aggregate runs per innings per batsman
+            batter_scores = deliveries.groupby(['match_id', 'striker'])['runs_off_bat'].sum().reset_index()
+            population = batter_scores['runs_off_bat'].values
+        else:
+            st.error("Deliveries data missing 'runs_off_bat'.")
+            st.stop()
 
-st.markdown("### 📌 Hypothesis Setup")
-st.markdown("""
-- **H0 (Null):** `toss_winner` and `winner` are independent  
-  → Winning the toss does **not** change the chance of winning the match.  
-- **H1 (Alt):** `toss_winner` and `winner` are associated  
-  → Winning the toss **does** change the chance of winning the match.
-""")
+        col_clt1, col_clt2 = st.columns(2)
 
-st.write(f"**Chi-square statistic:** `{chi2:.4f}`")
-st.write(f"**p-value:** `{p:.4f}`")
+        with col_clt1:
+            st.markdown("### 1. The Population (Reality)")
+            fig_pop = px.histogram(population, nbins=50, title="Distribution of Individual Scores", 
+                                 labels={'value': 'Runs Scored'}, color_discrete_sequence=['#EF553B'])
+            fig_pop.update_layout(showlegend=False)
+            st.plotly_chart(fig_pop, use_container_width=True)
+            st.warning("⚠️ **Highly Skewed:** Most scores are low. This is NOT a Bell Curve.")
 
-if p < 0.05:
-    st.success("✔ Result is **statistically significant** (p < 0.05).")
-else:
-    st.info("✖ Result is **not statistically significant** (p ≥ 0.05).")
+        with col_clt2:
+            st.markdown("### 2. The Sampling Distribution (CLT)")
+            
+            # Interactive Slider
+            sample_size = st.slider("Sample Size (Matches per Average)", min_value=2, max_value=100, value=30)
+            
+            # Run Simulation
+            sample_means = []
+            for _ in range(1000): # 1000 trials
+                # Randomly pick 'sample_size' innings and take the mean
+                sample = np.random.choice(population, size=sample_size, replace=True)
+                sample_means.append(sample.mean())
+            
+            fig_clt = px.histogram(sample_means, nbins=50, title=f"Distribution of Sample Means (n={sample_size})",
+                                 labels={'value': 'Average Runs'}, color_discrete_sequence=['#00CC96'])
+            st.plotly_chart(fig_clt, use_container_width=True)
+            st.success("✅ **Normal Distribution:** Even though individual scores are skewed, their *Averages* form a perfect Bell Curve!")
 
-# Data-driven conclusion for Test 1
-st.markdown("### ✅ Data-driven conclusion – Toss Impact")
-if p < 0.05:
-    st.markdown(f"""
-- `toss_winner` and `winner` show a **significant statistical association** (p = `{p:.4f}` < 0.05).  
-- Teams winning the `toss_winner` tend to win matches more often than expected by chance.  
-- Toss decisions should be treated as a **non-trivial factor** in match outcome analysis.  
-""")
-else:
-    st.markdown(f"""
-- `toss_winner` and `winner` do **not** show a strong statistical association (p = `{p:.4f}` ≥ 0.05).  
-- Teams winning the `toss_winner` do **not** win significantly more matches than expected by chance.  
-- Match outcome appears to depend more on `team_strength`, `batting/bowling performance`, and in-game decisions than on the toss alone.  
-""")
-
-
-# ============================================================
-# TEST 2 — Batting First vs Batting Second
-# ============================================================
-st.header("🏏 Test 2: Do Batting-First Teams Win More Often Than Batting-Second Teams?")
-st.markdown("""
-**Purpose:**  
-Compare the win rates of `bat_first_team` and `field_first_team` to see  
-whether batting first gives a measurable advantage.
-""")
-
-# Determine first batting team from toss decision
-matches["bat_first_team"] = matches.apply(
-    lambda x: x["toss_winner"]
-    if x["toss_decision"] == "bat"
-    else (x["team1"] if x["toss_winner"] != x["team1"] else x["team2"]),
-    axis=1,
-)
-
-matches["field_first_team"] = matches.apply(
-    lambda x: x["team1"] if x["bat_first_team"] != x["team1"] else x["team2"],
-    axis=1,
-)
-
-# Win flags
-matches["bat_first_win"] = matches["bat_first_team"] == matches["winner"]
-matches["field_first_win"] = matches["field_first_team"] == matches["winner"]
-
-# Counts for summary
-bat_first_wins = matches["bat_first_win"].sum()
-bat_first_total = len(matches)
-
-field_first_wins = matches["field_first_win"].sum()
-field_first_total = len(matches)
-
-summary_df = pd.DataFrame({
-    "Category": ["Bat First", "Field Second"],
-    "Wins": [bat_first_wins, field_first_wins],
-    "Total Matches": [bat_first_total, field_first_total],
-    "Win %": [
-        round(bat_first_wins / bat_first_total * 100, 2),
-        round(field_first_wins / field_first_total * 100, 2),
-    ],
-})
-
-st.markdown("### 📋 Summary Table – Bat First vs Field Second")
-st.markdown("""
-Shows how often teams win when they **bat first** compared to when they **chase**.
-""")
-st.dataframe(summary_df)
-
-# Proportion Z-Test
-counts = np.array([bat_first_wins, field_first_wins])
-totals = np.array([bat_first_total, field_first_total])
-
-stat, pval = proportions_ztest(counts, totals)
-
-st.markdown("### 📌 Hypothesis Setup")
-st.markdown("""
-- **H0 (Null):** Win probability is the same for `bat_first_team` and `field_first_team`.  
-- **H1 (Alt):** Win probability is **different** for `bat_first_team` compared to `field_first_team`.  
-""")
-
-st.write(f"**Z-statistic:** `{stat:.4f}`")
-st.write(f"**p-value:** `{pval:.4f}`")
-
-if pval < 0.05:
-    st.success("✔ Difference in win rates is **statistically significant** (p < 0.05).")
-else:
-    st.info("✖ Difference in win rates is **not statistically significant** (p ≥ 0.05).")
-
-# Data-driven conclusion for Test 2
-st.markdown("### ✅ Data-driven conclusion – Batting Order Impact")
-if pval < 0.05:
-    st.markdown(f"""
-- `bat_first_team` and `field_first_team` have **meaningfully different** win rates (p = `{pval:.4f}` < 0.05).  
-- Either batting first or chasing offers a measurable advantage in this dataset, depending on which category has higher `Win %`.  
-- Strategy around `toss_decision` (`bat` vs `field`) should be treated as a **key tactical choice**.  
-""")
-else:
-    st.markdown(f"""
-- Win rates for `bat_first_team` and `field_first_team` are **not statistically different** (p = `{pval:.4f}` ≥ 0.05).  
-- Both batting first and chasing can be equally successful; there is **no clear universal advantage** from batting order alone.  
-- Outcome seems driven more by execution (run rate, wickets, bowling performance) than by simply batting first or second.  
-""")
+    # ==============================================================================
+    # DOCUMENTATION
+    # ==============================================================================
+    st.divider()
+    with st.expander("📖 Concept Guide - How to Read This"):
+        st.markdown("""
+        ### **1. The P-Value**
+        * Think of the P-Value as a **"Luck Meter"**.
+        * **If P < 0.05:** It means the result is **Real**. (Luck is unlikely).
+        
+        ### **2. Central Limit Theorem (CLT)**
+        * It is the reason Statistics works.
+        * Try moving the slider in Tab 3. Notice how the messy red graph turns into a smooth green Bell Curve as you increase the sample size? That is CLT.
+        """)

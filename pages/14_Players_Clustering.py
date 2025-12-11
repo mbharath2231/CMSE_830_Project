@@ -2,227 +2,212 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 
 # 1. PAGE CONFIGURATION
 st.set_page_config(page_title="Player Clustering", layout="wide")
 
-st.title("🧩 Squad Role Analysis")
 st.markdown("""
-**Goal:** Identify player roles (e.g., "Anchors" vs "Power Hitters") using Unsupervised Machine Learning.
-Select a mode below to analyze the squad.
+<style>
+    .stMetric { background-color: #f0f2f6; padding: 10px; border-radius: 10px; }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🧩 Squad Role Analysis & PCA")
+st.markdown("""
+**Goal:** Identify player roles (e.g., "Anchors" vs "Power Hitters") using **Unsupervised Machine Learning (K-Means)**.
+We also use **PCA (Principal Component Analysis)** to visualize these multi-dimensional styles in 2D space.
 """)
 
-# 2. SHARED DATA LOADING
+# 2. DATA LOADING & PREP
 @st.cache_data
 def load_data():
     try:
         df = pd.read_csv('data/deliveries.csv')
+        
+        # Standardize column names
+        if 'wides' in df.columns:
+            df['wide_runs'] = df['wides'].fillna(0)
+        elif 'wide_runs' in df.columns:
+            df['wide_runs'] = df['wide_runs'].fillna(0)
+        else:
+            df['wide_runs'] = 0
+            
+        if 'noballs' in df.columns:
+            df['noball_runs'] = df['noballs'].fillna(0)
+        elif 'noball_runs' in df.columns:
+            df['noball_runs'] = df['noball_runs'].fillna(0)
+        else:
+            df['noball_runs'] = 0
+            
+        # Total runs calculation
+        if 'total_runs' not in df.columns:
+            if 'runs_off_bat' in df.columns and 'extras' in df.columns:
+                df['total_runs'] = df['runs_off_bat'] + df['extras']
+            else:
+                st.error("❌ Critical Error: Missing 'runs_off_bat' or 'extras'.")
+                return None
+                
         return df
-    except FileNotFoundError:
-        st.error("❌ Data file not found. Please ensure 'data/deliveries.csv' exists.")
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
         return None
 
 df = load_data()
 
 if df is not None:
-    # 3. ANALYSIS TOGGLE
     st.divider()
-    analysis_type = st.radio(
-        "Select Analysis Mode:",
-        ["🏏 Batsmen Clustering", "🎯 Bowler Clustering"],
-        horizontal=True
-    )
+    mode = st.radio("Select Analysis Mode:", ["🏏 Batsmen Clustering", "🎯 Bowler Clustering"], horizontal=True)
 
     # ==========================================
     # LOGIC 1: BATSMEN CLUSTERING
     # ==========================================
-    if analysis_type == "🏏 Batsmen Clustering":
-        st.subheader("1. Configure Parameters")
-        
-        # A. Preprocessing
-        player_stats = df.groupby('striker').agg(
+    if mode == "🏏 Batsmen Clustering":
+        # Feature Engineering
+        stats = df.groupby('striker').agg(
             runs=('runs_off_bat', 'sum'),
             balls=('ball', 'count'),
+            fours=('runs_off_bat', lambda x: (x==4).sum()),
+            sixes=('runs_off_bat', lambda x: (x==6).sum()),
             dismissals=('player_dismissed', lambda x: x.notnull().sum())
         ).reset_index()
-
-        # B. Controls with Embedded Docs
+        
+        # User Inputs (Updated Ranges)
         col1, col2 = st.columns(2)
+        # UPDATED: Increased max range to 300, set default to 30 to catch high-SR hitters
+        min_balls = col1.slider("Filter: Min Balls Faced", 10, 300, 30, help="Lower this to see 'Finishers' who face fewer balls but score fast.")
+        k = col2.slider("K-Means Clusters", 2, 6, 4)
         
-        with col1:
-            st.markdown("##### **Step A: Filter Data**")
-            min_balls = st.slider(
-                "Minimum Balls Faced", 
-                10, 200, 50, 10, 
-                key="bat_balls",
-                help="We remove players with low ball counts to avoid statistical noise (e.g., a player who hit 1 six and never played again)."
-            )
-            st.caption("ℹ️ **Why?** Removes outliers. A player needs a decent sample size to determine their true 'style'.")
-
-        with col2:
-            st.markdown("##### **Step B: ML Settings**")
-            k = st.slider(
-                "Number of Clusters (k)", 
-                2, 6, 4, 
-                key="bat_k",
-                help="K-Means algorithm will try to find this many distinct groups in the data."
-            )
-            st.caption("ℹ️ **What is k?** The number of 'roles' you want the AI to find (e.g., 3 = Low, Mid, High performance).")
-
-        # C. Filter
-        filtered_players = player_stats[player_stats['balls'] >= min_balls].copy()
+        # Filtering
+        filtered = stats[stats['balls'] >= min_balls].copy()
         
-        if len(filtered_players) < k:
-             st.error("Not enough players match your filter. Lower the 'Minimum Balls'.")
-        else:
-            # D. Metrics
-            filtered_players['strike_rate'] = (filtered_players['runs'] / filtered_players['balls']) * 100
-            filtered_players['average'] = filtered_players.apply(
-                lambda x: x['runs'] / x['dismissals'] if x['dismissals'] > 0 else x['runs'], axis=1
-            )
-
-            # E. AI Model
-            kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
-            features = filtered_players[['average', 'strike_rate']]
-            filtered_players['cluster'] = kmeans.fit_predict(features)
-            filtered_players['cluster_label'] = filtered_players['cluster'].astype(str)
-
-            # F. Visualization
-            st.divider()
-            st.subheader("2. Cluster Visualization")
-            
-            # Context for the Chart
-            st.info("""
-            **How to read this chart:**
-            * **X-Axis (Batting Avg):** Consistency. (Runs per out).
-            * **Y-Axis (Strike Rate):** Aggression. (Runs per 100 balls).
-            * **Goal:** Look for players in the **Top-Right** (High Avg + High SR).
-            """)
-
-            fig = px.scatter(
-                filtered_players, x='average', y='strike_rate', color='cluster_label',
-                hover_name='striker', size='runs', 
-                title=f"identified {k} Distinct Batting Styles",
-                labels={'average': 'Batting Average', 'strike_rate': 'Strike Rate'},
-                height=600, template="plotly_white"
-            )
-            fig.add_hline(y=filtered_players['strike_rate'].mean(), line_dash="dash", line_color="grey", annotation_text="Avg SR")
-            fig.add_vline(x=filtered_players['average'].mean(), line_dash="dash", line_color="grey", annotation_text="Avg Avg")
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # G. Stats Table
-            st.write("### 3. Group Summaries")
-            summary = filtered_players.groupby('cluster_label').agg(
-                Avg_Strike_Rate=('strike_rate', 'mean'),
-                Avg_Average=('average', 'mean'),
-                Player_Count=('striker', 'count'),
-                Examples=('striker', lambda x: ", ".join(x.sample(min(3, len(x))).values))
-            ).sort_values('Avg_Average', ascending=False)
-            st.dataframe(summary.style.format("{:.1f}", subset=['Avg_Strike_Rate', 'Avg_Average']), use_container_width=True)
+        # Metrics
+        filtered['strike_rate'] = filtered['runs'] / filtered['balls'] * 100
+        filtered['average'] = filtered.apply(lambda x: x['runs']/x['dismissals'] if x['dismissals']>0 else x['runs'], axis=1)
+        filtered['boundary_pct'] = (filtered['fours']*4 + filtered['sixes']*6) / filtered['runs'] * 100
+        filtered = filtered.fillna(0)
+        
+        features = ['runs', 'strike_rate', 'average', 'boundary_pct']
+        
+        # Clustering
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(filtered[features])
+        kmeans = KMeans(n_clusters=k, random_state=42)
+        filtered['cluster'] = kmeans.fit_predict(X_scaled).astype(str)
+        
+        # --- VISUALIZATION ---
+        st.subheader("1. Identify Batting Styles")
+        fig = px.scatter(
+            filtered, x='average', y='strike_rate', color='cluster', 
+            size='runs', hover_name='striker',
+            title=f"Batting Roles (k={k})",
+            labels={'average': 'Batting Average', 'strike_rate': 'Strike Rate'},
+            template="plotly_white"
+        )
+        # Ensure we see high Strike Rates
+        fig.update_yaxes(range=[0, max(filtered['strike_rate'].max() * 1.1, 200)])
+        st.plotly_chart(fig, use_container_width=True)
 
     # ==========================================
-    # LOGIC 2: BOWLER CLUSTERING
+    # LOGIC 2: BOWLER CLUSTERING (FIXED)
     # ==========================================
-    elif analysis_type == "🎯 Bowler Clustering":
-        st.subheader("1. Configure Parameters")
-
-        # A. Preprocessing
-        if 'runs_off_bat' in df.columns:
-            df['bowler_runs_conceded'] = df['runs_off_bat']
-            if 'wide_runs' in df.columns: df['bowler_runs_conceded'] += df['wide_runs'].fillna(0)
-            if 'noball_runs' in df.columns: df['bowler_runs_conceded'] += df['noball_runs'].fillna(0)
-            if 'wide_runs' not in df.columns and 'extras' in df.columns: df['bowler_runs_conceded'] += df['extras'].fillna(0)
-        else:
-             st.error("Critical: 'runs_off_bat' column missing.")
-             st.stop()
+    else:
+        # Determine Legal Balls
+        df['is_legal'] = 1
+        df.loc[df['wide_runs'] > 0, 'is_legal'] = 0
+        df.loc[df['noball_runs'] > 0, 'is_legal'] = 0
         
-        df['is_legal_ball'] = 1
-        if 'wide_runs' in df.columns: df.loc[df['wide_runs'] > 0, 'is_legal_ball'] = 0
-        if 'noball_runs' in df.columns: df.loc[df['noball_runs'] > 0, 'is_legal_ball'] = 0
-        
-        valid_dismissals = ['caught', 'bowled', 'lbw', 'stumped', 'caught and bowled', 'hit wicket']
-        if 'dismissal_kind' in df.columns:
-            df['is_bowler_wicket'] = df['dismissal_kind'].isin(valid_dismissals).astype(int)
+        # Determine Bowler Wickets
+        valid_wickets = ['caught', 'bowled', 'lbw', 'stumped', 'caught and bowled', 'hit wicket']
+        if 'wicket_type' in df.columns:
+            df['is_wicket'] = df['wicket_type'].isin(valid_wickets).astype(int)
         else:
-            df['is_bowler_wicket'] = df['player_dismissed'].notnull().astype(int)
+            df['is_wicket'] = df['player_dismissed'].notnull().astype(int)
 
-        bowler_stats = df.groupby('bowler').agg(
-            total_runs=('bowler_runs_conceded', 'sum'),
-            legal_balls=('is_legal_ball', 'sum'),
-            total_wickets=('is_bowler_wicket', 'sum')
+        # Feature Engineering
+        stats = df.groupby('bowler').agg(
+            runs_conceded=('total_runs', 'sum'),
+            legal_balls=('is_legal', 'sum'),
+            wickets=('is_wicket', 'sum')
         ).reset_index()
-        bowler_stats['overs_bowled'] = bowler_stats['legal_balls'] / 6
-
-        # B. Controls with Embedded Docs
+        
+        stats['overs'] = stats['legal_balls'] / 6
+        
+        # User Inputs
         col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("##### **Step A: Filter Data**")
-            min_overs = st.slider(
-                "Minimum Overs Bowled", 
-                1, 50, 5, 1, 
-                key="bowl_overs",
-                help="Removes 'Part-Timers' who only bowled 1 or 2 overs, as their stats are often misleading."
-            )
-            st.caption("ℹ️ **Why?** We need consistent bowlers. 5 overs is roughly 2 games worth of data.")
-
-        with col2:
-            st.markdown("##### **Step B: ML Settings**")
-            k = st.slider(
-                "Number of Clusters (k)", 
-                2, 5, 3, 
-                key="bowl_k",
-                help="The number of distinct bowling strategies you want to identify."
-            )
-            st.caption("ℹ️ **Recommendation:** k=3 usually separates 'Economical', 'Wicket Takers', and 'Expensive'.")
-
-        # C. Filter
-        filtered_bowlers = bowler_stats[bowler_stats['overs_bowled'] >= min_overs].copy()
+        min_overs = col1.slider("Filter: Min Overs Bowled", 1, 60, 10)
+        k = col2.slider("K-Means Clusters", 2, 6, 3)
         
-        filtered_bowlers['economy'] = filtered_bowlers['total_runs'] / filtered_bowlers['overs_bowled']
-        filtered_bowlers = filtered_bowlers[filtered_bowlers['total_wickets'] > 0]
+        # Filtering
+        filtered = stats[stats['overs'] >= min_overs].copy()
         
-        if len(filtered_bowlers) < k:
-             st.error(f"Not enough bowlers ({len(filtered_bowlers)}) found. Try lowering 'Minimum Overs'.")
-        else:
-            filtered_bowlers['average'] = filtered_bowlers['total_runs'] / filtered_bowlers['total_wickets']
-
-            # E. AI Model
-            kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
-            features = filtered_bowlers[['economy', 'average']]
-            filtered_bowlers['cluster'] = kmeans.fit_predict(features)
-            filtered_bowlers['cluster_label'] = filtered_bowlers['cluster'].astype(str)
-
-            # F. Visualization
-            st.divider()
-            st.subheader("2. Cluster Visualization")
-
-            # Context for the Chart
-            st.info("""
-            **How to read this chart:**
-            * **X-Axis (Economy):** Runs conceded per Over. (Lower is better).
-            * **Y-Axis (Bowling Avg):** Runs conceded per Wicket. (Lower is better).
-            * **Goal:** Look for players in the **Bottom-Left** (Low Econ + Low Avg).
-            """)
-
-            fig = px.scatter(
-                filtered_bowlers, x='economy', y='average', color='cluster_label',
-                size='total_wickets', hover_name='bowler', 
-                title=f"Identified {k} Bowling Strategies",
-                labels={'economy': 'Economy Rate', 'average': 'Bowling Average'},
-                height=600, template="plotly_white"
-            )
-            fig.add_hline(y=filtered_bowlers['average'].mean(), line_dash="dash", line_color="grey", annotation_text="Avg")
-            fig.add_vline(x=filtered_bowlers['economy'].mean(), line_dash="dash", line_color="grey", annotation_text="Econ")
+        if len(filtered) < k:
+            st.error("Not enough bowlers match your filter. Lower the 'Min Overs'.")
+            st.stop()
             
-            st.plotly_chart(fig, use_container_width=True)
+        # Metrics
+        filtered['economy'] = filtered['runs_conceded'] / filtered['overs']
+        # UPDATED: Increased penalty for 0-wicket bowlers to 150 (Visual separation)
+        filtered['strike_rate'] = filtered.apply(lambda x: x['legal_balls']/x['wickets'] if x['wickets']>0 else 150, axis=1) 
+        filtered['average'] = filtered.apply(lambda x: x['runs_conceded']/x['wickets'] if x['wickets']>0 else 60, axis=1)
+        
+        features = ['economy', 'strike_rate', 'average']
+        
+        # Clustering
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(filtered[features])
+        kmeans = KMeans(n_clusters=k, random_state=42)
+        filtered['cluster'] = kmeans.fit_predict(X_scaled).astype(str)
+        
+        # --- VISUALIZATION ---
+        st.subheader("1. Identify Bowling Strategies")
+        fig = px.scatter(
+            filtered, x='economy', y='strike_rate', color='cluster',
+            size='wickets', hover_name='bowler',
+            title=f"Bowling Roles (k={k})",
+            labels={'economy': 'Economy Rate (Runs/Over)', 'strike_rate': 'Strike Rate (Balls/Wicket)'},
+            template="plotly_white"
+        )
+        # Note: In Bowling, Lower is Better for both axes
+        fig.update_yaxes(autorange="reversed") 
+        fig.update_xaxes(autorange="reversed")
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption("Note: Axes are reversed because lower Economy and lower Strike Rate are better.")
 
-            # G. Stats Table
-            st.write("### 3. Group Summaries")
-            summary = filtered_bowlers.groupby('cluster_label').agg(
-                Avg_Economy=('economy', 'mean'),
-                Avg_Average=('average', 'mean'),
-                Player_Count=('bowler', 'count'),
-                Examples=('bowler', lambda x: ", ".join(x.sample(min(3, len(x))).values))
-            ).sort_values('Avg_Average')
-            st.dataframe(summary.style.format("{:.2f}", subset=['Avg_Economy', 'Avg_Average']), use_container_width=True)
+    # ==========================================
+    # PCA (DIMENSIONALITY REDUCTION)
+    # ==========================================
+    st.divider()
+    st.subheader("Dimensionality Reduction (PCA)")
+    
+    col_pca1, col_pca2 = st.columns([1, 2])
+    
+    with col_pca1:
+        st.info("""
+        **Why PCA?**
+        Our players have multiple stats (Avg, SR, Boundaries, etc.). It's hard to visualize 4D data.
+        
+        **Principal Component Analysis (PCA)** compresses these into 2 main "Components" while keeping the variance.
+        * **PC1:** Usually represents overall "Quality" or "Performance".
+        * **PC2:** Usually represents "Style" (Aggressive vs Defensive).
+        """)
+        
+    with col_pca2:
+        # Run PCA
+        pca = PCA(n_components=2)
+        pca_components = pca.fit_transform(X_scaled)
+        
+        filtered['PC1'] = pca_components[:, 0]
+        filtered['PC2'] = pca_components[:, 1]
+        
+        # Plot PCA
+        fig_pca = px.scatter(
+            filtered, x='PC1', y='PC2', color='cluster',
+            hover_name=filtered.columns[0], # Striker or Bowler
+            title=f"PCA Projection (Variance Explained: {sum(pca.explained_variance_ratio_):.1%})",
+            template="plotly_white"
+        )
+        st.plotly_chart(fig_pca, use_container_width=True)
+        
+    st.success("✅ **Interpretation:** Players grouped together in this PCA plot are statistically similar in *all* dimensions, not just the ones shown in the first chart.")
